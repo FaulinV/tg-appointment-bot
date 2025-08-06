@@ -1,17 +1,7 @@
-# Telegram Booking Bot
-# Repository: https://github.com/FaulinV
-# Developed by Zhan Kornilov (Faulin)
-
 import warnings
 warnings.filterwarnings("ignore", ".*per_message.*", category=UserWarning)
 
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton
-)
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -25,89 +15,86 @@ import datetime
 import re
 
 # --- CONFIGURATION ---
-# TOKEN placeholder - replace with your bot token
 TOKEN = 'PASTE_YOUR_API_TOKEN_HERE'
-# ADMIN_CHAT_ID placeholder - replace with your admin chat ID
 ADMIN_CHAT_ID = 'PASTE_YOUR_ADMIN_CHAT_ID_HERE'
 
 # --- STATES ---
 ASK_NAME, ASK_PHONE = range(2)
 
 # --- STORAGE ---
-# user_lang maps user IDs to language codes ('en' or 'ru')
-user_lang = {}
-# bookings stores date -> time -> booking info
-bookings = {}
-# to_notify stores user-specific list of bookings
-to_notify = {}
+user_lang = {}       # user_id -> 'en' or 'ru'
+bookings = {}        # date_str -> time_str -> booking info
+to_notify = {}       # client_id -> list of booking dicts
 
 # --- TRANSLATIONS ---
 TRANSLATIONS = {
-    'button_record':     {'en':'Book Repair 🛠️',       'ru':'Записать на ремонт 🛠️'},
-    'button_my_bookings':{'en':'My Appointments 📋',   'ru':'Мои записи 📋'},
-    'button_clients':    {'en':'Clients 👥',           'ru':'Клиенты 👥'},
-    'button_language':   {'en':'Language 🌐',          'ru':'Язык 🌐'},
+    'button_record':     {'en': 'Book Repair 🛠️', 'ru': 'Записать на ремонт 🛠️'},
+    'button_my_bookings':{'en': 'My Appointments 📋', 'ru': 'Мои записи 📋'},
+    'button_clients':    {'en': 'Clients 👥', 'ru': 'Клиенты 👥'},
+    'button_language':   {'en': 'Language 🌐', 'ru': 'Язык 🌐'},
     'prompt_welcome':    {
-        'en':'Hello, {name}! Welcome to Computer Repair Service.',
-        'ru':'Привет, {name}! Добро пожаловать в сервис ремонта компьютеров.'
+        'en': 'Hello, {name}! Welcome to Computer Repair Service.',
+        'ru': 'Привет, {name}! Добро пожаловать в сервис ремонта компьютеров.'
     },
     'prompt_choose_day': {
-        'en':'Select a day for your repair appointment:',
-        'ru':'Выберите день для ремонта:'
+        'en': 'Select a day for your repair appointment:',
+        'ru': 'Выберите день для ремонта:'
     },
     'prompt_choose_time':{
-        'en':'Select a time on {date}:',
-        'ru':'Выберите время на {date}:'
+        'en': 'Select a time on {date}:',
+        'ru': 'Выберите время на {date}:'
     },
     'prompt_ask_name':   {
-        'en':'Please enter your full name:',
-        'ru':'Пожалуйста, введите ваше полное имя:'
+        'en': 'Please enter your full name:',
+        'ru': 'Пожалуйста, введите ваше полное имя:'
     },
     'prompt_ask_phone':  {
-        'en':'Press the button below to share your phone number:',
-        'ru':'Нажмите кнопку ниже, чтобы отправить номер телефона:'
+        'en': 'Press the button below to share your phone number:',
+        'ru': 'Нажмите кнопку ниже, чтобы отправить номер телефона:'
     },
     'error_phone_format':{
-        'en':'Only numbers allowed, you can include a leading +',
-        'ru':'Только цифры и необязательный + в начале'
+        'en': 'Only numbers allowed, you can include a leading +',
+        'ru': 'Только цифры и необязательный + в начале'
     },
     'error_phone_length':{
-        'en':'Maximum 12 digits allowed!',
-        'ru':'Максимум 12 цифр!'
+        'en': 'Maximum 12 digits allowed!',
+        'ru': 'Максимум 12 цифр!'
+    },
+    'error_phone_minlength':{
+        'en': 'Minimum 4 digits required!',
+        'ru': 'Минимум 4 цифры!'
     },
     'user_sent':         {
-        'en':'Your repair request for {date} at {time} has been sent. Please wait for confirmation.',
-        'ru':'Ваша заявка на ремонт {date} в {time} отправлена. Ожидайте подтверждения.'
+        'en': 'Your repair request for {date} at {time} has been sent. Please wait for confirmation.',
+        'ru': 'Ваша заявка на ремонт {date} в {time} отправлена. Ожидайте подтверждения.'
     },
     'no_bookings':       {
-        'en':'You have no scheduled appointments.',
-        'ru':'У вас нет запланированных записей.'
+        'en': 'You have no scheduled appointments.',
+        'ru': 'У вас нет запланированных записей.'
     },
     'your_bookings':     {
-        'en':'Your Appointments:',
-        'ru':'Ваши записи:'
+        'en': 'Your Appointments:',
+        'ru': 'Ваши записи:'
     },
     'all_clients':       {
-        'en':'All confirmed clients:',
-        'ru':'Все подтверждённые клиенты:'
+        'en': 'All confirmed clients:',
+        'ru': 'Все подтверждённые клиенты:'
     },
     'prompt_language':   {
-        'en':'Choose language:',
-        'ru':'Выберите язык:'
+        'en': 'Choose language:',
+        'ru': 'Выберите язык:'
     },
     'lang_set':          {
-        'en':'Language set to English.',
-        'ru':'Язык установлен на русский.'
+        'en': 'Language set to English.',
+        'ru': 'Язык установлен на русский.'
     }
 }
 
-# Days of week for selection
-DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday']
-# Time slots for bookings
+# Days and times
+DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = [f"{h:02d}:00" for h in range(9, 18)]
 
 # --- HELPERS ---
-
 def fmt_date(dt: datetime.date) -> str:
     return dt.strftime('%Y-%m-%d')
 
@@ -116,16 +103,12 @@ def next_weekday(idx: int) -> datetime.date:
     delta = (idx - today.weekday() + 7) % 7 or 7
     return today + datetime.timedelta(days=delta)
 
-# Language helper
-
 def get_user_lang(uid):
     return user_lang.get(uid, 'en')
 
 def trans(key, uid, **kwargs):
-    template = TRANSLATIONS[key][get_user_lang(uid)]
-    return template.format(**kwargs)
+    return TRANSLATIONS[key][get_user_lang(uid)].format(**kwargs)
 
-# Main keyboard builder
 def main_kb(uid):
     row1 = [trans('button_record', uid)]
     if str(uid) == str(ADMIN_CHAT_ID):
@@ -230,24 +213,46 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
-    phone = contact.phone_number if contact else update.message.text
+    phone = contact.phone_number if contact else update.message.text.strip()
     uid = update.effective_user.id
     if not contact:
         if not re.fullmatch(r"\+?\d+", phone):
             await update.message.reply_text(trans('error_phone_format', uid))
             return ASK_PHONE
         digits = re.sub(r"\D", "", phone)
+        if len(digits) < 4:
+            await update.message.reply_text(trans('error_phone_minlength', uid))
+            return ASK_PHONE
         if len(digits) > 12:
             await update.message.reply_text(trans('error_phone_length', uid))
             return ASK_PHONE
     ds = context.user_data['date']
     ts = context.user_data['time']
     name_client = context.user_data['client_name']
-    bookings.setdefault(ds, {})[ts] = {'client_id':uid,'client_name':name_client,'phone':phone,'status':'pending'}
-    to_notify.setdefault(uid, []).append({'date':ds,'time':ts,'client_name':name_client,'phone':phone,'status':'pending'})
-    admin_msg = f"New repair booking:\nClient: {name_client}\nPhone: {phone}\nDate: {ds}\nTime: {ts}" 
-    buttons = [[InlineKeyboardButton('Confirm', callback_data=f'confirm|{uid}|{ds}|{ts}')],
-               [InlineKeyboardButton('Deny', callback_data=f'deny|{uid}|{ds}|{ts}')]]
+    bookings.setdefault(ds, {})[ts] = {
+        'client_id': uid,
+        'client_name': name_client,
+        'phone': phone,
+        'status': 'pending'
+    }
+    to_notify.setdefault(uid, []).append({
+        'date': ds,
+        'time': ts,
+        'client_name': name_client,
+        'phone': phone,
+        'status': 'pending'
+    })
+    admin_msg = (
+        f"New repair booking:\n"
+        f"Client: {name_client}\n"
+        f"Phone: {phone}\n"
+        f"Date: {ds}\n"
+        f"Time: {ts}"
+    )
+    buttons = [
+        [InlineKeyboardButton('Confirm', callback_data=f'confirm|{uid}|{ds}|{ts}')],
+        [InlineKeyboardButton('Deny',    callback_data=f'deny|{uid}|{ds}|{ts}')]
+    ]
     await context.bot.send_message(ADMIN_CHAT_ID, admin_msg, reply_markup=InlineKeyboardMarkup(buttons))
     await update.message.reply_text(trans('user_sent', uid, date=ds, time=ts), reply_markup=main_kb(uid))
     return ConversationHandler.END
@@ -259,11 +264,13 @@ async def admin_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cid = int(cid)
     status = 'confirmed' if cmd == 'confirm' else 'denied'
     for r in to_notify.get(cid, []):
-        if r['date']==ds and r['time']==ts:
-            r['status']=status
+        if r['date'] == ds and r['time'] == ts:
+            r['status'] = status
             break
-    text = (f"Your repair appointment on {ds} at {ts} is confirmed. See you then!" if status=='confirmed'
-            else f"Sorry, your repair appointment on {ds} at {ts} was denied. Please try again or contact us.")
+    if status == 'confirmed':
+        text = f"Your repair appointment on {ds} at {ts} is confirmed. See you then!"
+    else:
+        text = f"Sorry, your repair appointment on {ds} at {ts} was denied. Please try again or contact us."
     await context.bot.send_message(cid, text)
     await query.edit_message_reply_markup(reply_markup=None)
 
@@ -271,8 +278,12 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(time_callback, pattern=r'^time\|')],
-        states={ASK_NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],ASK_PHONE:[MessageHandler(filters.CONTACT | filters.TEXT, ask_phone)]},
-        fallbacks=[CallbackQueryHandler(callback_back_day, pattern=r'^back_day$')], per_chat=True
+        states={
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+            ASK_PHONE: [MessageHandler(filters.CONTACT | filters.TEXT, ask_phone)]
+        },
+        fallbacks=[CallbackQueryHandler(callback_back_day, pattern=r'^back_day$')],
+        per_chat=True
     )
     app.add_handler(conv)
     app.add_handler(CommandHandler('start', start))
