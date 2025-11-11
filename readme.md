@@ -1,4 +1,4 @@
-# Telegram Computer Repair Booking Bot
+# Telegram appointment bot
 
 &#x20;&#x20;
 
